@@ -8,7 +8,7 @@
   :author "Ported from superconsole (Meta Platforms, Inc.)"
   :license "MIT OR Apache-2.0"
   :version "0.1.0"
-  :depends-on (#:bordeaux-threads)
+  :depends-on (#:bordeaux-threads #:cffi)
   :serial t
   :components
   ((:module "src"

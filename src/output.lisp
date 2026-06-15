@@ -5,7 +5,8 @@
 ;;;;
 ;;;; The Rust buffers are `Vec<u8>`; since we deal in text + ANSI escapes we use
 ;;;; strings throughout. TTY detection and terminal-size queries (provided by
-;;;; crossterm in Rust) are implemented here via small libc FFI calls.
+;;;; crossterm in Rust) are implemented here via small libc FFI calls through
+;;;; CFFI, so they work on any CFFI-supported implementation.
 
 (in-package #:supercons)
 
@@ -18,13 +19,13 @@
 
 ;;; libc FFI for tty detection / terminal size --------------------------------
 
-(sb-alien:define-alien-routine ("isatty" %c-isatty) sb-alien:int
-  (fd sb-alien:int))
+(cffi:defcfun ("isatty" %c-isatty) :int
+  (fd :int))
 
-(sb-alien:define-alien-routine ("ioctl" %c-ioctl) sb-alien:int
-  (fd sb-alien:int)
-  (request sb-alien:unsigned-long)
-  (arg sb-alien:system-area-pointer))
+(cffi:defcfun ("ioctl" %c-ioctl) :int
+  (fd :int)
+  (request :unsigned-long)
+  (arg :pointer))
 
 (defparameter +tiocgwinsz+
   #+darwin #x40087468
@@ -33,13 +34,18 @@
   "The TIOCGWINSZ ioctl request number for this platform, or NIL if unknown.")
 
 (defun %stream-fd (stream)
-  "Best-effort retrieval of the file descriptor backing STREAM, or NIL."
-  (ignore-errors
-   (typecase stream
-     (sb-sys:fd-stream (sb-sys:fd-stream-fd stream))
-     (synonym-stream (%stream-fd (symbol-value (synonym-stream-symbol stream))))
-     (two-way-stream (%stream-fd (two-way-stream-output-stream stream)))
-     (t nil))))
+  "Best-effort retrieval of the file descriptor backing STREAM, or NIL.
+Obtaining an OS file descriptor from a Lisp stream has no portable API, so
+this is the one spot that stays implementation-specific."
+  (typecase stream
+    (synonym-stream (%stream-fd (symbol-value (synonym-stream-symbol stream))))
+    (two-way-stream (%stream-fd (two-way-stream-output-stream stream)))
+    (t
+     (ignore-errors
+      #+sbcl (sb-sys:fd-stream-fd stream)
+      #+ccl (ccl:stream-device stream :output)
+      #+(or ecl clasp) (ext:file-stream-fd stream)
+      #-(or sbcl ccl ecl clasp) nil))))
 
 (defun stream-is-tty-p (stream)
   "True when STREAM is connected to a terminal."
@@ -49,20 +55,19 @@
 (defun query-terminal-size ()
   "Best-effort terminal size as `dimensions`, or NIL if it cannot be determined.
 Tries the COLUMNS/LINES environment variables, then a TIOCGWINSZ ioctl."
-  (let ((cols (ignore-errors (parse-integer (or (sb-ext:posix-getenv "COLUMNS") "")
+  (let ((cols (ignore-errors (parse-integer (or (uiop:getenv "COLUMNS") "")
                                             :junk-allowed t)))
-        (rows (ignore-errors (parse-integer (or (sb-ext:posix-getenv "LINES") "")
+        (rows (ignore-errors (parse-integer (or (uiop:getenv "LINES") "")
                                             :junk-allowed t))))
     (cond
       ((and cols rows (plusp cols) (plusp rows)) (make-dimensions cols rows))
       (+tiocgwinsz+
        (ignore-errors
-        (let ((ws (sb-alien:make-alien sb-alien:unsigned-short 4)))
-          (unwind-protect
-               (when (zerop (%c-ioctl 2 +tiocgwinsz+ (sb-alien:alien-sap ws)))
-                 (let ((r (sb-alien:deref ws 0)) (c (sb-alien:deref ws 1)))
-                   (when (and (plusp r) (plusp c)) (make-dimensions c r))))
-            (sb-alien:free-alien ws)))))
+        (cffi:with-foreign-object (ws :unsigned-short 4)
+          (when (zerop (%c-ioctl 2 +tiocgwinsz+ ws))
+            (let ((r (cffi:mem-aref ws :unsigned-short 0))
+                  (c (cffi:mem-aref ws :unsigned-short 1)))
+              (when (and (plusp r) (plusp c)) (make-dimensions c r)))))))
       (t nil))))
 
 ;;; SuperConsoleOutput protocol -----------------------------------------------

@@ -31,7 +31,7 @@
   (%make-superconsole :fallback-size fallback-size :output output))
 
 (defun term-dumb-p ()
-  (equal (sb-ext:posix-getenv "TERM") "dumb"))
+  (equal (uiop:getenv "TERM") "dumb"))
 
 (defun superconsole-compatible-p ()
   "True when stderr is a tty and the terminal supports the needed control codes."
@@ -51,10 +51,10 @@
 
 (defun %sc-size (sc)
   "Determine the drawing size, honoring testing env vars and the fallback."
-  (let ((w (sb-ext:posix-getenv "SUPERCONSOLE_TESTING_WIDTH")))
+  (let ((w (uiop:getenv "SUPERCONSOLE_TESTING_WIDTH")))
     (if w
         (make-dimensions (parse-integer w)
-                         (parse-integer (sb-ext:posix-getenv "SUPERCONSOLE_TESTING_HEIGHT")))
+                         (parse-integer (uiop:getenv "SUPERCONSOLE_TESTING_HEIGHT")))
         (let ((fallback (superconsole-fallback-size sc)))
           (handler-case
               (let ((size (terminal-size (superconsole-output sc))))

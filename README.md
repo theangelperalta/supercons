@@ -30,8 +30,9 @@ Then from a Lisp REPL:
 (asdf:load-system :supercons)
 ```
 
-Runtime dependency: [`bordeaux-threads`](https://github.com/sionescu/bordeaux-threads).
-Tests additionally require [`rove`](https://github.com/fukamachi/rove).
+Runtime dependencies: [`bordeaux-threads`](https://github.com/sionescu/bordeaux-threads)
+and [`cffi`](https://github.com/cffi/cffi) (used for `isatty`/`ioctl` terminal
+queries). Tests additionally require [`rove`](https://github.com/fukamachi/rove).
 
 ## Quick start
 
