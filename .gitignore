@@ -1,0 +1,8 @@
+# macOS
+.DS_Store
+
+# Compiled Lisp / ASDF + Quicklisp build artifacts
+*.fasl
+*.fas
+*.lx64fsl
+.cache/

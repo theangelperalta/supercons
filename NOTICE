@@ -1,0 +1,13 @@
+supercons
+Copyright (c) supercons contributors
+
+This product is a Common Lisp port of "superconsole", a terminal rendering
+library originally written in Rust as part of Meta's buck2 project.
+
+Portions Copyright (c) Meta Platforms, Inc. and affiliates.
+Upstream: https://github.com/facebook/buck2 (superconsole crate)
+
+The original work is dual-licensed under MIT OR Apache-2.0. This port is
+distributed under the same terms. File and symbol names follow the Rust
+source where reasonable; the source has been translated to Common Lisp and
+modified accordingly.
