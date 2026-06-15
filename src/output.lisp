@@ -22,10 +22,14 @@
 (cffi:defcfun ("isatty" %c-isatty) :int
   (fd :int))
 
-(cffi:defcfun ("ioctl" %c-ioctl) :int
-  (fd :int)
-  (request :unsigned-long)
-  (arg :pointer))
+(defun %c-ioctl-winsize (fd request buf)
+  "Call ioctl(FD, REQUEST, BUF). ioctl is variadic, so it must be called
+through FOREIGN-FUNCALL-VARARGS: on arm64 the variadic BUF pointer is passed
+on the stack, and a plain fixed-arity DEFCFUN would mispass it (returning -1)."
+  (cffi:foreign-funcall-varargs "ioctl"
+                                (:int fd :unsigned-long request)
+                                :pointer buf
+                                :int))
 
 (defparameter +tiocgwinsz+
   #+darwin #x40087468
@@ -64,7 +68,7 @@ Tries the COLUMNS/LINES environment variables, then a TIOCGWINSZ ioctl."
       (+tiocgwinsz+
        (ignore-errors
         (cffi:with-foreign-object (ws :unsigned-short 4)
-          (when (zerop (%c-ioctl 2 +tiocgwinsz+ ws))
+          (when (zerop (%c-ioctl-winsize 2 +tiocgwinsz+ ws))
             (let ((r (cffi:mem-aref ws :unsigned-short 0))
                   (c (cffi:mem-aref ws :unsigned-short 1)))
               (when (and (plusp r) (plusp c)) (make-dimensions c r)))))))
