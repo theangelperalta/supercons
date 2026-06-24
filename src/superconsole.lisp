@@ -49,6 +49,22 @@
 (defun %lines-total-len (lines)
   (reduce #'+ (lines-vec lines) :key #'line-len :initial-value 0))
 
+(defun %lines-physical-rows (lines width)
+  "Physical terminal rows LINES occupy at WIDTH, accounting for the wrap the
+terminal applies to any stored line now wider than WIDTH (e.g. after the window
+was made narrower). Falls back to the logical line count when WIDTH is unknown.
+
+The in-place redraw walks the cursor up to the top of the previously drawn
+canvas before overwriting it. Lines are truncated to the terminal width at draw
+time, so each occupies one row -- until the window is resized, at which point the
+terminal reflows any now-too-wide stored line across multiple rows. Counting
+logical lines then walks up too few rows and leaves the reflowed remainder on
+screen, so we count physical rows at the current width instead."
+  (if (plusp width)
+      (reduce (lambda (acc line) (+ acc (max 1 (ceiling (line-len line) width))))
+              (lines-vec lines) :initial-value 0)
+      (lines-len lines)))
+
 (defun %sc-size (sc)
   "Determine the drawing size, honoring testing env vars and the fallback."
   (let ((w (uiop:getenv "SUPERCONSOLE_TESTING_WIDTH")))
@@ -83,8 +99,9 @@
 
 (defun superconsole-clear (sc)
   "Clear the canvas portion of the console."
-  (let ((buffer (make-string-output-stream)))
-    (%clear-canvas-pre buffer (lines-len (superconsole-canvas-contents sc)))
+  (let ((buffer (make-string-output-stream))
+        (width (handler-case (dimensions-width (%sc-size sc)) (error () 0))))
+    (%clear-canvas-pre buffer (%lines-physical-rows (superconsole-canvas-contents sc) width))
     (setf (superconsole-canvas-contents sc) (make-lines))
     (%clear-canvas-post buffer)
     (output (superconsole-output sc) (get-output-stream-string buffer))))
@@ -110,7 +127,9 @@
                                0))
              (buffer (make-string-output-stream)))
         (write-string (ansi-hide-cursor) buffer)
-        (%clear-canvas-pre buffer (- (lines-len (superconsole-canvas-contents sc)) reuse-prefix))
+        (%clear-canvas-pre buffer (- (%lines-physical-rows (superconsole-canvas-contents sc)
+                                                           (dimensions-width size))
+                                     reuse-prefix))
         (unless (lines-empty-p (superconsole-aux-to-emit sc))
           (if (aux-stream-is-tty (superconsole-output sc))
               (progn

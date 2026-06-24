@@ -141,3 +141,18 @@
     (let ((frame (joined-frames console)))
       (ok (sc:frame-contains-p frame "state"))
       (ok (sc:frame-contains-p frame (format nil "aux line 1~%aux line 2"))))))
+
+(deftest sc-resize-narrower-clears-wrapped-rows
+  ;; A canvas line drawn while the window is wide gets reflowed across several
+  ;; physical rows once the window is made narrower. The in-place redraw must
+  ;; walk the cursor up by physical rows, not logical lines, or the wrapped
+  ;; remainder is orphaned on screen. Regression for the resize "leftover text"
+  ;; bug: a 31-column line at width 20 occupies ceil(31/20)=2 rows, so the second
+  ;; render's clear must move up 2 rows (ESC[2A), not 1.
+  (let ((console (sc:test-console))
+        (root (sc:make-echo (slines '("0123456789012345678901234567890")))))
+    (sc:superconsole-render-general console root :normal (sc:make-dimensions 40 10))
+    (sc:superconsole-render-general console root :normal (sc:make-dimensions 20 10))
+    (let ((second (car (last (frames console)))))
+      (ok (search (format nil "~c[2A" #\Escape) second))
+      (ng (search (format nil "~c[1A" #\Escape) second)))))
