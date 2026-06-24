@@ -142,17 +142,31 @@
       (ok (sc:frame-contains-p frame "state"))
       (ok (sc:frame-contains-p frame (format nil "aux line 1~%aux line 2"))))))
 
-(deftest sc-resize-narrower-clears-wrapped-rows
-  ;; A canvas line drawn while the window is wide gets reflowed across several
-  ;; physical rows once the window is made narrower. The in-place redraw must
-  ;; walk the cursor up by physical rows, not logical lines, or the wrapped
-  ;; remainder is orphaned on screen. Regression for the resize "leftover text"
-  ;; bug: a 31-column line at width 20 occupies ceil(31/20)=2 rows, so the second
-  ;; render's clear must move up 2 rows (ESC[2A), not 1.
+(deftest sc-resize-forces-full-repaint
+  ;; On resize the terminal reflows (and, when it also shrank, scrolls) the
+  ;; previously drawn canvas, so relative cursor math can no longer locate its
+  ;; top and would orphan the remainder on screen. A render whose size differs
+  ;; from the previous one must clear the whole visible screen (ESC[2J) and
+  ;; redraw from home (ESC[H) instead of moving the cursor up. Regression for the
+  ;; resize "leftover text" bug, including macOS window-snap to half/quarter.
   (let ((console (sc:test-console))
         (root (sc:make-echo (slines '("0123456789012345678901234567890")))))
     (sc:superconsole-render-general console root :normal (sc:make-dimensions 40 10))
-    (sc:superconsole-render-general console root :normal (sc:make-dimensions 20 10))
+    (let ((first (car (last (frames console)))))
+      ;; First render has no prior size, so it must not full-clear.
+      (ng (search (format nil "~c[2J" #\Escape) first)))
+    (sc:superconsole-render-general console root :normal (sc:make-dimensions 20 8))
     (let ((second (car (last (frames console)))))
-      (ok (search (format nil "~c[2A" #\Escape) second))
+      (ok (search (format nil "~c[2J" #\Escape) second))
+      (ok (search (format nil "~c[H" #\Escape) second))
+      ;; No relative move-up on a resize frame.
       (ng (search (format nil "~c[1A" #\Escape) second)))))
+
+(deftest sc-no-resize-no-full-repaint
+  ;; Steady-state renders at an unchanged size must keep using the cheap
+  ;; in-place redraw and never clear the whole screen.
+  (let ((console (sc:test-console))
+        (root (sc:make-echo (slines '("state")))))
+    (sc:superconsole-render-general console root :normal (sc:make-dimensions 40 10))
+    (sc:superconsole-render-general console root :normal (sc:make-dimensions 40 10))
+    (ng (search (format nil "~c[2J" #\Escape) (joined-frames console)))))

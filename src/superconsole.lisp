@@ -16,6 +16,8 @@
 (defun ansi-move-up (n) (format nil "~c[~dA" #\Escape n))
 (defun ansi-move-to-column-0 () (format nil "~c[1G" #\Escape))
 (defun ansi-clear-from-cursor-down () (format nil "~c[J" #\Escape))
+(defun ansi-clear-screen () (format nil "~c[2J" #\Escape))
+(defun ansi-move-home () (format nil "~c[H" #\Escape))
 
 ;;; SuperConsole --------------------------------------------------------------
 
@@ -24,6 +26,7 @@
   (to-emit (make-lines) :type lines)
   (aux-to-emit (make-lines) :type lines)
   (fallback-size nil)
+  (last-size nil)                       ; dimensions of the previous render, for resize detection
   (output nil))
 
 (defun make-superconsole-with-output (fallback-size output)
@@ -120,16 +123,29 @@ screen, so we count physical rows at the current width instead."
                  (max (max 0 (- (dimensions-height size) (lines-len canvas)))
                       +minimum-emit+)
                  nil)))
-      (let* ((limit (compute-limit))
-             (reuse-prefix (if (and (lines-empty-p (superconsole-to-emit sc))
+      (let* ((resized (and (superconsole-last-size sc)
+                           (not (dimensions= size (superconsole-last-size sc)))))
+             (limit (compute-limit))
+             ;; A resize forces a full repaint, so no canvas prefix can be reused.
+             (reuse-prefix (if (and (not resized)
+                                    (lines-empty-p (superconsole-to-emit sc))
                                     (lines-empty-p (superconsole-aux-to-emit sc)))
                                (lines-equal (superconsole-canvas-contents sc) canvas)
                                0))
              (buffer (make-string-output-stream)))
         (write-string (ansi-hide-cursor) buffer)
-        (%clear-canvas-pre buffer (- (%lines-physical-rows (superconsole-canvas-contents sc)
-                                                           (dimensions-width size))
-                                     reuse-prefix))
+        (if resized
+            ;; On resize the terminal reflows (and, when it also shrank, scrolls)
+            ;; the previously drawn canvas, so relative cursor math can no longer
+            ;; locate its top -- moving up a computed number of rows would orphan
+            ;; the wrapped/scrolled remainder on screen. Clear the whole visible
+            ;; screen (scrollback history is preserved) and redraw from home.
+            (progn
+              (write-string (ansi-clear-screen) buffer)
+              (write-string (ansi-move-home) buffer))
+            (%clear-canvas-pre buffer (- (%lines-physical-rows (superconsole-canvas-contents sc)
+                                                              (dimensions-width size))
+                                         reuse-prefix)))
         (unless (lines-empty-p (superconsole-aux-to-emit sc))
           (if (aux-stream-is-tty (superconsole-output sc))
               (progn
@@ -152,6 +168,7 @@ screen, so we count physical rows at the current width instead."
         (write-string (ansi-show-cursor) buffer)
         (%clear-canvas-post buffer)
         (setf (superconsole-canvas-contents sc) canvas)
+        (setf (superconsole-last-size sc) size)
         (output (superconsole-output sc) (get-output-stream-string buffer)))))
   (values))
 
